@@ -5,22 +5,43 @@ import openpyxl
 st.set_page_config(page_title="생산실적 요약 대시보드", layout="wide")
 
 file_path = "▣ 26년 월간 실적보고 (7월).xlsx"
+
+# 1. 엑셀 데이터 추출 (data_only=True 지원)
 wb = openpyxl.load_workbook(file_path, data_only=True)
 ws = wb.active
 
 report_title = ws.cell(row=2, column=2).value or "26년 07월 생산실적 보고"
 
-order_qty = ws.cell(row=7, column=15).value or 0
-plan_qty = ws.cell(row=8, column=15).value or 0
-capa_qty = ws.cell(row=9, column=15).value or 0
-actual_qty = ws.cell(row=10, column=15).value or 0
+# 데이터 추출 및 수식 예외 처리
+def get_val(row, col):
+    val = ws.cell(row=row, column=col).value
+    if val is None or str(val).startswith('='):
+        return 0
+    try:
+        return float(val)
+    except:
+        return 0
+
+order_qty = get_val(7, 15)
+plan_qty = get_val(8, 15)
+capa_qty = get_val(9, 15)
+actual_qty = get_val(10, 15)
+
+# 백업: O열 수치가 0일 경우 N열 수치 확인
+if order_qty == 0 and plan_qty == 0:
+    order_qty = get_val(7, 14)
+    plan_qty = get_val(8, 14)
+    capa_qty = get_val(9, 14)
+    actual_qty = get_val(10, 14)
+
 achieve_rate = (actual_qty / plan_qty * 100) if plan_qty > 0 else 0
 
-plan_time = ws.cell(row=19, column=6).value or 0
-actual_time = ws.cell(row=19, column=11).value or 0
-ship_plan = ws.cell(row=50, column=11).value or 0
-ship_actual = ws.cell(row=50, column=13).value or 0
+plan_time = get_val(19, 6)
+actual_time = get_val(19, 11)
+ship_plan = get_val(50, 11)
+ship_actual = get_val(50, 13)
 
+# UI 영역
 st.title(f"📊 [임원 보고용] {report_title} 요약 대시보드")
 st.markdown("---")
 
@@ -48,7 +69,6 @@ st.dataframe(df_downtime, use_container_width=True)
 st.markdown("---")
 
 st.subheader("3. 라인별 UPH / PPH 상세 관리 현황")
-
 uph_r29 = [ws.cell(row=29, column=c).value for c in range(2, 18)]
 uph_r30 = [ws.cell(row=30, column=c).value for c in range(2, 18)]
 
