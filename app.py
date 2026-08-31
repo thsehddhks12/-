@@ -50,14 +50,12 @@ k3.metric("CAPA계획", f"{capa_qty:,.0f} EA")
 k4.metric("생산실적", f"{actual_qty:,.0f} EA", delta=f"달성률 {achieve_rate:.1f}%")
 k5.metric("완제품출고 (실적/계획)", f"{ship_actual:,.0f} / {ship_plan:,.0f} 건")
 
-st.markdown("---")
-
 # ----------------------------------------------------
-# 2. 비가동 요인 종합 분석 (원본 그대로 가져오기)
+# 2. 비가동 요인 종합 분석 (깔끔하게 정리)
 # ----------------------------------------------------
 st.subheader("2. 비가동 요인 종합 분석")
 
-# 20행 헤더 추출 후 중복 방지 처리
+# 1) 헤더 추출 및 중복 방지 (기존과 동일)
 downtime_headers_raw = [ws.cell(row=20, column=c).value for c in range(9, 19)]
 seen_downtime = {}
 downtime_headers = []
@@ -70,17 +68,45 @@ for h in downtime_headers_raw:
         seen_downtime[name] = 0
         downtime_headers.append(name)
 
-# 21~29행 데이터 무조건 모두 가져오기 (필터링 제거)
+# 2) 데이터 가져오기 (21행 ~ 29행)
 downtime_rows = []
 for r in range(21, 30):
     row_vals = [ws.cell(row=r, column=c).value for c in range(9, 19)]
     downtime_rows.append(row_vals)
 
-# 데이터프레임 생성 및 출력
+# 3) 데이터프레임 만들기
 df_downtime = pd.DataFrame(downtime_rows, columns=downtime_headers).fillna("-")
-st.dataframe(df_downtime, use_container_width=True)
 
-st.markdown("---")
+# 🚨 [추가된 부분] 불필요한 첫 번째 행(0번 인덱스) 삭제
+if not df_downtime.empty:
+    df_downtime = df_downtime.drop(index=0).reset_index(drop=True)
+
+# 🚨 [추가된 부분] 마지막 열(9번 인덱스, '-_9' 처럼 된 열) 삭제
+df_downtime = df_downtime.iloc[:, :-1]
+
+# 🚨 [추가된 부분] 헤더 이름 깔끔하게 정리 (_1, _2 같은 꼬리표 떼기)
+clean_cols = []
+for col in df_downtime.columns:
+    if col.startswith("-"):
+        clean_cols.append("") # 대시(-)로 시작하면 그냥 빈칸 처리
+    elif "_" in col:
+        clean_cols.append(col.split("_")[0]) # _ 뒤의 숫자 잘라내기
+    else:
+        clean_cols.append(col)
+
+# 중복 방지를 위해 빈칸 헤더를 안전하게 처리
+final_clean_cols = []
+space_count = 1
+for c in clean_cols:
+    if c == "":
+        final_clean_cols.append(" " * space_count) # 띄어쓰기 개수로 열 구분
+        space_count += 1
+    else:
+        final_clean_cols.append(c)
+
+df_downtime.columns = final_clean_cols
+
+st.dataframe(df_downtime, use_container_width=True)
 
 # ----------------------------------------------------
 # 3. 라인별 UPH / PPH 상세 관리 현황
