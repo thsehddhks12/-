@@ -1,83 +1,167 @@
-import streamlit as st
-import pandas as pd
-import plotly.express as px
+import openpyxl
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.utils import get_column_letter
 
-# 1. 웹페이지 기본 설정 (넓은 화면 레이아웃)
-st.set_page_config(page_title="생산관리 KPI & 비가동 모니터링", layout="wide")
+# 1. 원본 엑셀 파일 로드
+file_path = "▣ 26년 월간 실적보고 (7월).xlsx"
+wb = openpyxl.load_workbook(file_path, data_only=True)
+ws = wb.active
 
-st.title("🏭 생산공정 KPI & 비가동 시간 실시간 모니터링")
-st.markdown("---")
+# ----------------------------------------------------
+# 2. 데이터 추출 (Data Extraction)
+# ----------------------------------------------------
+# (1) 보고서 타이틀 / 기준월
+report_title = ws.cell(row=2, column=2).value or "26년 07월 생산실적 보고"
 
-# 2. 깃허브에 업로드된 엑셀 파일 자동 로드 설정
-EXCEL_FILE = "▣ 26년 월간 실적보고 (7월).xlsx"
+# (2) 생산계획 및 실적 (7~12행, O열 = 15번째 열)
+prod_data = {}
+for r in range(7, 13):
+    label = ws.cell(row=r, column=2).value or f"항목_{r}"
+    val = ws.cell(row=r, column=15).value  # O열
+    prod_data[label] = val
 
-# 사이드바 상태 표시
-st.sidebar.header("📌 데이터 출처")
+# (3) 투입시간 (19행 F열=6, K열=11)
+plan_time = ws.cell(row=19, column=6).value   # F19
+actual_time = ws.cell(row=19, column=11).value # K19
 
-try:
-    # 깃허브 내 엑셀 파일을 자동으로 읽어옵니다.
-    df_kpi = pd.read_excel(EXCEL_FILE, sheet_name=0)
-    st.sidebar.success(f"✅ '{EXCEL_FILE}' 데이터를 성공적으로 불러왔습니다.")
-except Exception as e:
-    st.sidebar.error(f"❌ 엑셀 파일을 불러오지 못했습니다.\n깃허브에 파일이 정상 업로드되었는지 확인해주세요.\n\n오류 내용: {e}")
+# (4) 비가동 요인 (21~29행, I~R열 = 9~18번째 열)
+downtime_headers = [ws.cell(row=20, column=c).value for c in range(9, 19)]
+downtime_rows = []
+for r in range(21, 30):
+    row_vals = [ws.cell(row=r, column=c).value for c in range(9, 19)]
+    if any(row_vals):
+        downtime_rows.append(row_vals)
 
-# -------------------------------------------------------------
-# 🚨 [가장 중요한 3번 항목] 비가동 시간 & 원인 집중 분석 섹션
-# -------------------------------------------------------------
-st.error("🚨 3. 비가동 시간 및 로스(Loss) 현황 분석")
+# (5) UPH / PPH 관리 (31~38행, B~Q열 = 2~17번째 열)
+uph_headers = [ws.cell(row=30, column=c).value for c in range(2, 18)]
+uph_rows = []
+for r in range(31, 39):
+    row_vals = [ws.cell(row=r, column=c).value for c in range(2, 17)]
+    if any(row_vals):
+        uph_rows.append(row_vals)
 
-col_loss1, col_loss2 = st.columns([1, 2])
+# (6) 완제품 출고 현황 (50행 K열=11, M열=13)
+ship_plan = ws.cell(row=50, column=11).value  # K50
+ship_actual = ws.cell(row=50, column=13).value # M50
 
-with col_loss1:
-    total_downtime = 42.5  # 엑셀 기반 데이터
-    st.metric(label="총 비가동 시간", value=f"{total_downtime} 시간", delta="-3.5 시간 (전월 대비)")
-    st.caption("주요 비가동 원인: 설비 정기 점검, 자재 공급 지연, 라인 교체")
+print("✅ 원본 데이터 추출 완료!")
 
-with col_loss2:
-    # 비가동 원인별 비중 파이 차트
-    loss_data = pd.DataFrame({
-        '비가동 사유': ['설비 고장/정비', '자재 대기', '품질 불량 조치', '모델 교체(C/O)', '기타'],
-        '시간(H)': [18.5, 12.0, 6.0, 4.5, 1.5]
-    })
-    fig_loss = px.pie(loss_data, values='시간(H)', names='비가동 사유', title="비가동 사유별 점유율", hole=0.4)
-    st.plotly_chart(fig_loss, use_container_width=True)
+# ----------------------------------------------------
+# 3. 임원보고용 요약 대시보드 시트 생성 & 데이터 작성
+# ----------------------------------------------------
+if "Executive_Dashboard" in wb.sheetnames:
+    del wb["Executive_Dashboard"]
 
-st.markdown("---")
+dash = wb.create_sheet(title="Executive_Dashboard", index=0)
+dash.views.sheetView[0].showGridLines = True
 
-# -------------------------------------------------------------
-# 📊 1, 2번 주요 KPI 및 완제품 출고 요약 섹션
-# -------------------------------------------------------------
-st.subheader("📈 주요 생산 KPI 현황")
+# 서식 스타일 정의
+font_title = Font(name="맑은 고딕", size=16, bold=True, color="1F497D")
+font_section = Font(name="맑은 고딕", size=11, bold=True, color="FFFFFF")
+font_header = Font(name="맑은 고딕", size=10, bold=True)
+font_data = Font(name="맑은 고딕", size=10)
 
-kpi_col1, kpi_col2, kpi_col3 = st.columns(3)
+fill_section = PatternFill(start_color="1F497D", end_color="1F497D", fill_type="solid") # Dark Blue
+fill_header = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")  # Light Gray
+fill_highlight = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid") # Yellow Highlight
 
-with kpi_col1:
-    st.metric(label="1. 계획 대비 달성률", value="94.2%", delta="1.2%")
-with kpi_col2:
-    st.metric(label="2. CAPA 대비 달성률", value="88.7%", delta="-0.5%")
-with kpi_col3:
-    st.metric(label="완제품 출고 현황", value="12,450 개", delta="850 개")
+thin_border = Border(
+    left=Side(style='thin', color='D9D9D9'),
+    right=Side(style='thin', color='D9D9D9'),
+    top=Side(style='thin', color='D9D9D9'),
+    bottom=Side(style='thin', color='D9D9D9')
+)
 
-st.markdown("---")
+# 1. 타이틀 작성
+dash.merge_cells("B2:H2")
+dash["B2"] = f"📊 [임원 보고용] {report_title} 요약 대시보드"
+dash["B2"].font = font_title
+dash["B2"].alignment = Alignment(vertical="center")
 
-# -------------------------------------------------------------
-# ⚙️ 4번 UPH 라인별 전수 관리 섹션
-# -------------------------------------------------------------
-st.subheader("⚙️ 4. 라인별 UPH (시간당 생산량) 전수 관리")
+# Helper 함수: 섹션 헤더 생성
+def create_section_header(ws, start_cell, end_cell, text):
+    ws.merge_cells(f"{start_cell}:{end_cell}")
+    cell = ws[start_cell]
+    cell.value = text
+    cell.font = font_section
+    cell.fill = fill_section
+    cell.alignment = Alignment(horizontal="left", vertical="center", indent=1)
 
-# UPH 관리 데이터표
-uph_data = pd.DataFrame({
-    '라인/설비명': ['조립 1라인', '조립 2라인', '검사 A설비', '검사 B설비', '포장 라인'],
-    '표준 UPH': [120, 120, 150, 150, 200],
-    '실적 UPH': [115, 122, 142, 148, 195],
-    '달성률(%)': [95.8, 101.7, 94.7, 98.7, 97.5]
-})
+# --- 섹션 1: 생산계획 및 실적 / 투입시간 / 출고 현황 요약 KPI ---
+create_section_header(dash, "B4", "H4", "1. 핵심 생산 KPI & 출고 요약")
 
-col_uph1, col_uph2 = st.columns([2, 1])
+headers_kpi = ["구분", "발주량", "생산계획", "CAPA계획", "생산실적", "투입시간 (계획/실적)", "완제품출고 (계획/실적)"]
+for col_idx, h in enumerate(headers_kpi, start=2):
+    cell = dash.cell(row=5, column=col_idx, value=h)
+    cell.font = font_header
+    cell.fill = fill_header
+    cell.alignment = Alignment(horizontal="center", vertical="center")
+    cell.border = thin_border
 
-with col_uph1:
-    st.dataframe(uph_data, use_container_width=True)
-    
-with col_uph2:
-    fig_uph = px.bar(uph_data, x='라인/설비명', y=['표준 UPH', '실적 UPH'], barmode='group', title="라인별 UPH 비교")
-    st.plotly_chart(fig_uph, use_container_width=True)
+# KPI 데이터 입력
+kpi_row = [
+    "월간 합계",
+    prod_data.get("발주량", 0),
+    prod_data.get("생산계획수량", 0),
+    prod_data.get("capa 계획 수량", 0),
+    prod_data.get("생산실적 수량", 0),
+    f"{plan_time or 0}h / {actual_time or 0}h",
+    f"{ship_plan or 0}건 / {ship_actual or 0}건"
+]
+
+for col_idx, val in enumerate(kpi_row, start=2):
+    cell = dash.cell(row=6, column=col_idx, value=val)
+    cell.font = font_data
+    cell.alignment = Alignment(horizontal="center" if col_idx in [2, 7, 8] else "right", vertical="center")
+    cell.border = thin_border
+    if col_idx == 6: # 생산실적 음영 강조
+        cell.fill = fill_highlight
+
+# --- 섹션 2: 비가동 요인 종합 ---
+create_section_header(dash, "B8", "H8", "2. 비가동 요인 종합 분석")
+
+if downtime_headers:
+    for col_idx, h in enumerate(downtime_headers[:7], start=2):
+        cell = dash.cell(row=9, column=col_idx, value=h)
+        cell.font = font_header
+        cell.fill = fill_header
+        cell.border = thin_border
+
+curr_row = 10
+for r_data in downtime_rows:
+    for col_idx, val in enumerate(r_data[:7], start=2):
+        cell = dash.cell(row=curr_row, column=col_idx, value=val)
+        cell.font = font_data
+        cell.border = thin_border
+    curr_row += 1
+
+# --- 섹션 3: UPH / PPH 라인별 현황 ---
+uph_start_row = curr_row + 2
+create_section_header(dash, f"B{uph_start_row}", f"H{uph_start_row}", "3. 라인별 UPH / PPH 상세 관리 현황")
+
+header_uph_row = uph_start_row + 1
+if uph_headers:
+    for col_idx, h in enumerate(uph_headers[:7], start=2):
+        cell = dash.cell(row=header_uph_row, column=col_idx, value=h)
+        cell.font = font_header
+        cell.fill = fill_header
+        cell.border = thin_border
+
+curr_row = header_uph_row + 1
+for r_data in uph_rows:
+    for col_idx, val in enumerate(r_data[:7], start=2):
+        cell = dash.cell(row=curr_row, column=col_idx, value=val)
+        cell.font = font_data
+        cell.border = thin_border
+    curr_row += 1
+
+# 열 너비 자동 조절
+for col in dash.columns:
+    max_len = max(len(str(cell.value or '')) for cell in col)
+    col_letter = get_column_letter(col[0].column)
+    dash.column_dimensions[col_letter].width = max(max_len + 3, 12)
+
+# 저장
+output_path = "▣_26년_월간_실적보고_대시보드_완성본.xlsx"
+wb.save(output_path)
+print(f"🎉 성공적으로 임원 보고용 대시보드가 생성되었습니다: {output_path}")
