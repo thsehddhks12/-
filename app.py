@@ -6,6 +6,7 @@ st.set_page_config(page_title="생산실적 요약 대시보드", layout="wide")
 
 file_path = "▣ 26년 월간 실적보고 (7월).xlsx"
 
+# 1. 엑셀 데이터 추출
 wb = openpyxl.load_workbook(file_path, data_only=True)
 ws = wb.active
 
@@ -35,7 +36,9 @@ achieve_rate = (actual_qty / plan_qty * 100) if plan_qty > 0 else 0
 ship_plan = get_val(50, 11)
 ship_actual = get_val(50, 13)
 
+# ----------------------------------------------------
 # UI 영역
+# ----------------------------------------------------
 st.title(f"📊 [임원 보고용] {report_title} 요약 대시보드")
 st.markdown("---")
 
@@ -49,45 +52,39 @@ k5.metric("완제품출고 (실적/계획)", f"{ship_actual:,.0f} / {ship_plan:,
 
 st.markdown("---")
 
-# 2. 비가동 요인 종합 분석 (중복 컬럼 에러 완벽 해결 버전)
+# ----------------------------------------------------
+# 2. 비가동 요인 종합 분석 (원본 그대로 가져오기)
+# ----------------------------------------------------
 st.subheader("2. 비가동 요인 종합 분석")
 
-downtime_headers_raw = []
-for c in range(9, 19):
-    h20 = ws.cell(row=20, column=c).value
-    h21 = ws.cell(row=21, column=c).value
-    name = str(h21).strip() if h21 and str(h21).strip() else (str(h20).strip() if h20 and str(h20).strip() else f"col_{c}")
-    downtime_headers_raw.append(name)
-
-# 헤더 중복 방지 안전장치
-seen_cols = {}
+# 20행 헤더 추출 후 중복 방지 처리
+downtime_headers_raw = [ws.cell(row=20, column=c).value for c in range(9, 19)]
+seen_downtime = {}
 downtime_headers = []
-for name in downtime_headers_raw:
-    if name in seen_cols:
-        seen_cols[name] += 1
-        downtime_headers.append(f"{name} {seen_cols[name]}")
+for h in downtime_headers_raw:
+    name = str(h).strip() if h else "-"
+    if name in seen_downtime:
+        seen_downtime[name] += 1
+        downtime_headers.append(f"{name}_{seen_downtime[name]}")
     else:
-        seen_cols[name] = 0
+        seen_downtime[name] = 0
         downtime_headers.append(name)
 
+# 21~29행 데이터 무조건 모두 가져오기 (필터링 제거)
 downtime_rows = []
-for r in range(22, 31):
+for r in range(21, 30):
     row_vals = [ws.cell(row=r, column=c).value for c in range(9, 19)]
-    if any(v is not None and str(v).strip() != '' for v in row_vals):
-        downtime_rows.append(row_vals)
+    downtime_rows.append(row_vals)
 
-df_downtime = pd.DataFrame(downtime_rows)
-
-if len(df_downtime) > 0:
-    df_downtime.columns = downtime_headers[:len(df_downtime.columns)]
-    df_downtime = df_downtime.iloc[1:].reset_index(drop=True)
-
-df_downtime = df_downtime.fillna("-")
+# 데이터프레임 생성 및 출력
+df_downtime = pd.DataFrame(downtime_rows, columns=downtime_headers).fillna("-")
 st.dataframe(df_downtime, use_container_width=True)
 
 st.markdown("---")
 
+# ----------------------------------------------------
 # 3. 라인별 UPH / PPH 상세 관리 현황
+# ----------------------------------------------------
 st.subheader("3. 라인별 UPH / PPH 상세 관리 현황")
 
 uph_r29 = [ws.cell(row=29, column=c).value for c in range(2, 18)]
@@ -115,6 +112,7 @@ for r in range(31, 39):
         uph_rows.append(formatted_row)
 
 df_uph = pd.DataFrame(uph_rows, columns=uph_cols)
+
 clean_columns = [col.rsplit('_', 1)[0] for col in df_uph.columns]
 
 seen = {}
