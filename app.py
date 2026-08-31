@@ -51,60 +51,47 @@ k4.metric("생산실적", f"{actual_qty:,.0f} EA", delta=f"달성률 {achieve_ra
 k5.metric("완제품출고 (실적/계획)", f"{ship_actual:,.0f} / {ship_plan:,.0f} 건")
 
 # ----------------------------------------------------
-# 2. 비가동 요인 종합 분석 (깔끔하게 정리)
+# 2. 비가동 요인 종합 분석 (헤더 및 공란 완벽 수정)
 # ----------------------------------------------------
 st.subheader("2. 비가동 요인 종합 분석")
 
-# 1) 헤더 추출 및 중복 방지 (기존과 동일)
-downtime_headers_raw = [ws.cell(row=20, column=c).value for c in range(9, 19)]
-seen_downtime = {}
+# 1) 20행과 21행을 조합하여 진짜 헤더 이름 찾기
 downtime_headers = []
-for h in downtime_headers_raw:
-    name = str(h).strip() if h else "-"
-    if name in seen_downtime:
-        seen_downtime[name] += 1
-        downtime_headers.append(f"{name}_{seen_downtime[name]}")
-    else:
-        seen_downtime[name] = 0
-        downtime_headers.append(name)
+for c in range(9, 19):
+    h20 = ws.cell(row=20, column=c).value
+    h21 = ws.cell(row=21, column=c).value
+    
+    # 21행에 세부항목이 있으면 사용, 없으면 20행(합계 등) 사용
+    col_name = str(h21).strip() if h21 and str(h21).strip() else (str(h20).strip() if h20 and str(h20).strip() else "")
+    downtime_headers.append(col_name)
 
-# 2) 데이터 가져오기 (21행 ~ 29행)
+# 2) 실제 데이터는 22행부터 29행까지 가져오기
 downtime_rows = []
-for r in range(21, 30):
+for r in range(22, 30):
     row_vals = [ws.cell(row=r, column=c).value for c in range(9, 19)]
     downtime_rows.append(row_vals)
 
-# 3) 데이터프레임 만들기
-df_downtime = pd.DataFrame(downtime_rows, columns=downtime_headers).fillna("-")
+# 3) 데이터프레임 생성
+df_downtime = pd.DataFrame(downtime_rows, columns=downtime_headers)
 
-# 🚨 [추가된 부분] 불필요한 첫 번째 행(0번 인덱스) 삭제
-if not df_downtime.empty:
-    df_downtime = df_downtime.drop(index=0).reset_index(drop=True)
+# 4) 이름이 없는 불필요한 공란 열 완벽 삭제
+df_downtime = df_downtime.loc[:, df_downtime.columns != ""]
+df_downtime = df_downtime.loc[:, ~df_downtime.columns.str.contains("비가동 요인")] # 껍데기 헤더 정리
 
-# 🚨 [추가된 부분] 마지막 열(9번 인덱스, '-_9' 처럼 된 열) 삭제
-df_downtime = df_downtime.iloc[:, :-1]
+# 5) 빈칸 기호(-) 처리
+df_downtime = df_downtime.fillna("-")
 
-# 🚨 [추가된 부분] 헤더 이름 깔끔하게 정리 (_1, _2 같은 꼬리표 떼기)
-clean_cols = []
-for col in df_downtime.columns:
-    if col.startswith("-"):
-        clean_cols.append("") # 대시(-)로 시작하면 그냥 빈칸 처리
-    elif "_" in col:
-        clean_cols.append(col.split("_")[0]) # _ 뒤의 숫자 잘라내기
+# 중복 이름 방지 (Streamlit 에러 방지용)
+seen = {}
+final_cols = []
+for name in df_downtime.columns:
+    if name in seen:
+        seen[name] += 1
+        final_cols.append(f"{name} ") # 띄어쓰기로 중복 회피
     else:
-        clean_cols.append(col)
-
-# 중복 방지를 위해 빈칸 헤더를 안전하게 처리
-final_clean_cols = []
-space_count = 1
-for c in clean_cols:
-    if c == "":
-        final_clean_cols.append(" " * space_count) # 띄어쓰기 개수로 열 구분
-        space_count += 1
-    else:
-        final_clean_cols.append(c)
-
-df_downtime.columns = final_clean_cols
+        seen[name] = 0
+        final_cols.append(name)
+df_downtime.columns = final_cols
 
 st.dataframe(df_downtime, use_container_width=True)
 
