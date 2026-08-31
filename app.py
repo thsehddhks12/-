@@ -53,38 +53,31 @@ k5.metric("완제품출고 (실적/계획)", f"{ship_actual:,.0f} / {ship_plan:,
 st.markdown("---")
 
 # ----------------------------------------------------
-# 2. 비가동 요인 종합 분석 (가장 안전한 추출 방식)
+# 2. 비가동 요인 종합 분석 (원본 그대로 가져오기)
 # ----------------------------------------------------
 st.subheader("2. 비가동 요인 종합 분석")
 
-# 1) 20행, 21행을 조합하여 안전하게 헤더 추출 (빈칸은 '빈칸_열번호'로 임시 저장)
+# 20행 헤더 추출 후 중복 방지 처리
+downtime_headers_raw = [ws.cell(row=20, column=c).value for c in range(9, 19)]
+seen_downtime = {}
 downtime_headers = []
-for c in range(9, 19):
-    h20 = ws.cell(row=20, column=c).value
-    h21 = ws.cell(row=21, column=c).value
-    
-    # 21행 세부 항목 우선, 없으면 20행 합계, 둘 다 없으면 '빈칸'
-    name = str(h21).strip() if h21 and str(h21).strip() else (str(h20).strip() if h20 and str(h20).strip() else f"빈칸_{c}")
-    downtime_headers.append(name)
+for h in downtime_headers_raw:
+    name = str(h).strip() if h else "-"
+    if name in seen_downtime:
+        seen_downtime[name] += 1
+        downtime_headers.append(f"{name}_{seen_downtime[name]}")
+    else:
+        seen_downtime[name] = 0
+        downtime_headers.append(name)
 
-# 2) 데이터 추출 (22~29행) - 빈 행 완전히 무시
+# 21~29행 데이터 무조건 모두 가져오기 (필터링 제거)
 downtime_rows = []
-for r in range(22, 30):
+for r in range(21, 30):
     row_vals = [ws.cell(row=r, column=c).value for c in range(9, 19)]
-    # 데이터가 하나라도 있는 진짜 행만 추가
-    if any(v is not None and str(v).strip() != '' for v in row_vals):
-        downtime_rows.append(row_vals)
+    downtime_rows.append(row_vals)
 
-# 3) 데이터프레임 생성
-df_downtime = pd.DataFrame(downtime_rows, columns=downtime_headers)
-
-# 4) '빈칸_x' 로 이름 붙은 4열 등의 불필요한 공란 열 완전 삭제
-valid_cols = [c for c in df_downtime.columns if not c.startswith("빈칸_")]
-df_downtime = df_downtime[valid_cols]
-
-# 5) 빈 값(-) 처리
-df_downtime = df_downtime.fillna("-")
-
+# 데이터프레임 생성 및 출력
+df_downtime = pd.DataFrame(downtime_rows, columns=downtime_headers).fillna("-")
 st.dataframe(df_downtime, use_container_width=True)
 
 st.markdown("---")
