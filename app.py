@@ -49,31 +49,38 @@ k5.metric("완제품출고 (실적/계획)", f"{ship_actual:,.0f} / {ship_plan:,
 
 st.markdown("---")
 
-# 2. 비가동 요인 종합 분석 (데이터 누락 방지 안전 버전)
+# 2. 비가동 요인 종합 분석 (중복 컬럼 에러 완벽 해결 버전)
 st.subheader("2. 비가동 요인 종합 분석")
 
-# 헤더 행 (20행과 21행 조합)
-downtime_headers = []
+downtime_headers_raw = []
 for c in range(9, 19):
     h20 = ws.cell(row=20, column=c).value
     h21 = ws.cell(row=21, column=c).value
-    name = str(h21).strip() if h21 and str(h21).strip() else (str(h20).strip() if h20 and str(h20).strip() else "")
-    downtime_headers.append(name)
+    name = str(h21).strip() if h21 and str(h21).strip() else (str(h20).strip() if h20 and str(h20).strip() else f"col_{c}")
+    downtime_headers_raw.append(name)
 
-# 데이터 행 (21행부터 아래로 글자나 숫자가 들어있는 행을 자동으로 탐색)
+# 헤더 중복 방지 안전장치
+seen_cols = {}
+downtime_headers = []
+for name in downtime_headers_raw:
+    if name in seen_cols:
+        seen_cols[name] += 1
+        downtime_headers.append(f"{name} {seen_cols[name]}")
+    else:
+        seen_cols[name] = 0
+        downtime_headers.append(name)
+
 downtime_rows = []
-for r in range(21, 31):
+for r in range(22, 31):
     row_vals = [ws.cell(row=r, column=c).value for c in range(9, 19)]
-    # 빈 행이 아니면 모두 추가
     if any(v is not None and str(v).strip() != '' for v in row_vals):
         downtime_rows.append(row_vals)
 
 df_downtime = pd.DataFrame(downtime_rows)
 
-# 첫 번째 행을 헤더로 설정하고, 데이터는 그 아래부터 표시
 if len(df_downtime) > 0:
     df_downtime.columns = downtime_headers[:len(df_downtime.columns)]
-    df_downtime = df_downtime.iloc[1:].reset_index(drop=True) # 헤더로 쓴 첫 줄 제외
+    df_downtime = df_downtime.iloc[1:].reset_index(drop=True)
 
 df_downtime = df_downtime.fillna("-")
 st.dataframe(df_downtime, use_container_width=True)
