@@ -53,63 +53,55 @@ k5.metric("완제품출고 (실적/계획)", f"{ship_actual:,.0f} / {ship_plan:,
 st.markdown("---")
 
 # ----------------------------------------------------
-# 2. 비가동 요인 (가시성 개선)
+# 2. 비가동 요인 종합 분석
 # ----------------------------------------------------
 st.subheader("2. 비가동 요인 종합 분석")
-downtime_headers = [ws.cell(row=20, column=c).value for c in range(9, 19)]
+
+# 20행 헤더 추출 (빈칸 처리)
+downtime_headers_raw = [ws.cell(row=20, column=c).value for c in range(9, 19)]
+downtime_headers = [str(h).strip() if h else f"빈칸_{i}" for i, h in enumerate(downtime_headers_raw)]
 
 downtime_rows = []
 for r in range(21, 30):
     row_vals = [ws.cell(row=r, column=c).value for c in range(9, 19)]
-    # 데이터가 하나라도 있는 행만 추출
+    # 데이터가 존재하는 행만 추가
     if any(v is not None and str(v).strip() != '' for v in row_vals):
         downtime_rows.append(row_vals)
 
-# 빈 열 제거를 위해 데이터프레임 생성 후 전처리
-df_downtime = pd.DataFrame(downtime_rows, columns=downtime_headers)
+df_downtime = pd.DataFrame(downtime_rows, columns=downtime_headers).fillna("-")
 
-# 이름이 None이거나 비어있는 열(Column) 삭제
-df_downtime = df_downtime.loc[:, df_downtime.columns.notna()]
-df_downtime = df_downtime.loc[:, df_downtime.columns != '']
-df_downtime = df_downtime.loc[:, ~df_downtime.columns.str.startswith('-')]
+# 의미 없는 '빈칸' 열 제거
+cols_to_keep = [col for col in df_downtime.columns if not col.startswith("빈칸_")]
+df_downtime = df_downtime[cols_to_keep]
 
-# 결측치(-) 처리
-df_downtime = df_downtime.fillna("-")
 st.dataframe(df_downtime, use_container_width=True)
 
 st.markdown("---")
 
 # ----------------------------------------------------
-# 3. 라인별 UPH / PPH (헤더 병합 정제)
+# 3. 라인별 UPH / PPH 상세 관리 현황
 # ----------------------------------------------------
 st.subheader("3. 라인별 UPH / PPH 상세 관리 현황")
+
+# 29행(대분류), 30행(소분류) 헤더 추출
 uph_r29 = [ws.cell(row=29, column=c).value for c in range(2, 18)]
 uph_r30 = [ws.cell(row=30, column=c).value for c in range(2, 18)]
 
-# 헤더 정밀 병합 (빈칸 제거)
+# 병합 헤더 조합 로직
 uph_cols = []
 last_valid = "구분"
-for h1, h2 in zip(uph_r29, uph_r30):
-    if h1:
+for i, (h1, h2) in enumerate(zip(uph_r29, uph_r30)):
+    if h1 and str(h1).strip():
         last_valid = str(h1).strip()
     
-    # 29행(대분류)과 30행(소분류) 결합
-    if h2 and str(h2).strip():
-        col_name = f"{last_valid} ({str(h2).strip()})"
+    val2 = str(h2).strip() if h2 else ""
+    if val2:
+        col_name = f"{last_valid} ({val2})"
     else:
         col_name = last_valid
-    uph_cols.append(col_name)
-
-# 중복 열 이름 방지 로직
-seen = {}
-clean_uph_cols = []
-for name in uph_cols:
-    if name in seen:
-        seen[name] += 1
-        clean_uph_cols.append(f"{name}_{seen[name]}")
-    else:
-        seen[name] = 0
-        clean_uph_cols.append(name)
+    
+    # 중복 방지를 위한 인덱스 추가 (임시)
+    uph_cols.append(f"{col_name}_{i}")
 
 uph_rows = []
 for r in range(31, 39):
@@ -118,10 +110,22 @@ for r in range(31, 39):
         formatted_row = [round(v, 2) if isinstance(v, float) else (v if v is not None else "-") for v in row_vals]
         uph_rows.append(formatted_row)
 
-df_uph = pd.DataFrame(uph_rows, columns=clean_uph_cols)
+df_uph = pd.DataFrame(uph_rows, columns=uph_cols)
 
-# 불필요하게 늘어난 빈 열(이름에 _1, _2가 붙거나 '-'인 경우) 필터링
-cols_to_keep = [col for col in df_uph.columns if not ('_' in col and col.split('_')[-1].isdigit())]
-df_uph = df_uph[cols_to_keep]
+# 임시 인덱스(_) 제거 및 이름 정리
+clean_columns = [col.rsplit('_', 1)[0] for col in df_uph.columns]
+
+# 중복 이름 최종 방지
+seen = {}
+final_cols = []
+for name in clean_columns:
+    if name in seen:
+        seen[name] += 1
+        final_cols.append(f"{name}_{seen[name]}")
+    else:
+        seen[name] = 0
+        final_cols.append(name)
+        
+df_uph.columns = final_cols
 
 st.dataframe(df_uph, use_container_width=True)
