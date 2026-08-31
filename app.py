@@ -50,63 +50,44 @@ k3.metric("CAPA계획", f"{capa_qty:,.0f} EA")
 k4.metric("생산실적", f"{actual_qty:,.0f} EA", delta=f"달성률 {achieve_rate:.1f}%")
 k5.metric("완제품출고 (실적/계획)", f"{ship_actual:,.0f} / {ship_plan:,.0f} 건")
 
+st.markdown("---")
+
 # ----------------------------------------------------
-# 2. 비가동 요인 종합 분석 (깔끔하게 정리)
+# 2. 비가동 요인 종합 분석 (가장 안전한 추출 방식)
 # ----------------------------------------------------
 st.subheader("2. 비가동 요인 종합 분석")
 
-# 1) 헤더 추출 및 중복 방지 (기존과 동일)
-downtime_headers_raw = [ws.cell(row=20, column=c).value for c in range(9, 19)]
-seen_downtime = {}
+# 1) 20행, 21행을 조합하여 안전하게 헤더 추출 (빈칸은 '빈칸_열번호'로 임시 저장)
 downtime_headers = []
-for h in downtime_headers_raw:
-    name = str(h).strip() if h else "-"
-    if name in seen_downtime:
-        seen_downtime[name] += 1
-        downtime_headers.append(f"{name}_{seen_downtime[name]}")
-    else:
-        seen_downtime[name] = 0
-        downtime_headers.append(name)
+for c in range(9, 19):
+    h20 = ws.cell(row=20, column=c).value
+    h21 = ws.cell(row=21, column=c).value
+    
+    # 21행 세부 항목 우선, 없으면 20행 합계, 둘 다 없으면 '빈칸'
+    name = str(h21).strip() if h21 and str(h21).strip() else (str(h20).strip() if h20 and str(h20).strip() else f"빈칸_{c}")
+    downtime_headers.append(name)
 
-# 2) 데이터 가져오기 (21행 ~ 29행)
+# 2) 데이터 추출 (22~29행) - 빈 행 완전히 무시
 downtime_rows = []
-for r in range(21, 30):
+for r in range(22, 30):
     row_vals = [ws.cell(row=r, column=c).value for c in range(9, 19)]
-    downtime_rows.append(row_vals)
+    # 데이터가 하나라도 있는 진짜 행만 추가
+    if any(v is not None and str(v).strip() != '' for v in row_vals):
+        downtime_rows.append(row_vals)
 
-# 3) 데이터프레임 만들기
-df_downtime = pd.DataFrame(downtime_rows, columns=downtime_headers).fillna("-")
+# 3) 데이터프레임 생성
+df_downtime = pd.DataFrame(downtime_rows, columns=downtime_headers)
 
-# 🚨 [추가된 부분] 불필요한 첫 번째 행(0번 인덱스) 삭제
-if not df_downtime.empty:
-    df_downtime = df_downtime.drop(index=0).reset_index(drop=True)
+# 4) '빈칸_x' 로 이름 붙은 4열 등의 불필요한 공란 열 완전 삭제
+valid_cols = [c for c in df_downtime.columns if not c.startswith("빈칸_")]
+df_downtime = df_downtime[valid_cols]
 
-# 🚨 [추가된 부분] 마지막 열(9번 인덱스, '-_9' 처럼 된 열) 삭제
-df_downtime = df_downtime.iloc[:, :-1]
-
-# 🚨 [추가된 부분] 헤더 이름 깔끔하게 정리 (_1, _2 같은 꼬리표 떼기)
-clean_cols = []
-for col in df_downtime.columns:
-    if col.startswith("-"):
-        clean_cols.append("") # 대시(-)로 시작하면 그냥 빈칸 처리
-    elif "_" in col:
-        clean_cols.append(col.split("_")[0]) # _ 뒤의 숫자 잘라내기
-    else:
-        clean_cols.append(col)
-
-# 중복 방지를 위해 빈칸 헤더를 안전하게 처리
-final_clean_cols = []
-space_count = 1
-for c in clean_cols:
-    if c == "":
-        final_clean_cols.append(" " * space_count) # 띄어쓰기 개수로 열 구분
-        space_count += 1
-    else:
-        final_clean_cols.append(c)
-
-df_downtime.columns = final_clean_cols
+# 5) 빈 값(-) 처리
+df_downtime = df_downtime.fillna("-")
 
 st.dataframe(df_downtime, use_container_width=True)
+
+st.markdown("---")
 
 # ----------------------------------------------------
 # 3. 라인별 UPH / PPH 상세 관리 현황
