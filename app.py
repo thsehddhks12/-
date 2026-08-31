@@ -53,27 +53,31 @@ k5.metric("완제품출고 (실적/계획)", f"{ship_actual:,.0f} / {ship_plan:,
 st.markdown("---")
 
 # ----------------------------------------------------
-# 2. 비가동 요인 종합 분석
+# 2. 비가동 요인 종합 분석 (원본 그대로 가져오기)
 # ----------------------------------------------------
 st.subheader("2. 비가동 요인 종합 분석")
 
-# 20행 헤더 추출 (빈칸 처리)
+# 20행 헤더 추출 후 중복 방지 처리
 downtime_headers_raw = [ws.cell(row=20, column=c).value for c in range(9, 19)]
-downtime_headers = [str(h).strip() if h else f"빈칸_{i}" for i, h in enumerate(downtime_headers_raw)]
+seen_downtime = {}
+downtime_headers = []
+for h in downtime_headers_raw:
+    name = str(h).strip() if h else "-"
+    if name in seen_downtime:
+        seen_downtime[name] += 1
+        downtime_headers.append(f"{name}_{seen_downtime[name]}")
+    else:
+        seen_downtime[name] = 0
+        downtime_headers.append(name)
 
+# 21~29행 데이터 무조건 모두 가져오기 (필터링 제거)
 downtime_rows = []
 for r in range(21, 30):
     row_vals = [ws.cell(row=r, column=c).value for c in range(9, 19)]
-    # 데이터가 존재하는 행만 추가
-    if any(v is not None and str(v).strip() != '' for v in row_vals):
-        downtime_rows.append(row_vals)
+    downtime_rows.append(row_vals)
 
+# 데이터프레임 생성 및 출력
 df_downtime = pd.DataFrame(downtime_rows, columns=downtime_headers).fillna("-")
-
-# 의미 없는 '빈칸' 열 제거
-cols_to_keep = [col for col in df_downtime.columns if not col.startswith("빈칸_")]
-df_downtime = df_downtime[cols_to_keep]
-
 st.dataframe(df_downtime, use_container_width=True)
 
 st.markdown("---")
@@ -83,11 +87,9 @@ st.markdown("---")
 # ----------------------------------------------------
 st.subheader("3. 라인별 UPH / PPH 상세 관리 현황")
 
-# 29행(대분류), 30행(소분류) 헤더 추출
 uph_r29 = [ws.cell(row=29, column=c).value for c in range(2, 18)]
 uph_r30 = [ws.cell(row=30, column=c).value for c in range(2, 18)]
 
-# 병합 헤더 조합 로직
 uph_cols = []
 last_valid = "구분"
 for i, (h1, h2) in enumerate(zip(uph_r29, uph_r30)):
@@ -100,7 +102,6 @@ for i, (h1, h2) in enumerate(zip(uph_r29, uph_r30)):
     else:
         col_name = last_valid
     
-    # 중복 방지를 위한 인덱스 추가 (임시)
     uph_cols.append(f"{col_name}_{i}")
 
 uph_rows = []
@@ -112,10 +113,8 @@ for r in range(31, 39):
 
 df_uph = pd.DataFrame(uph_rows, columns=uph_cols)
 
-# 임시 인덱스(_) 제거 및 이름 정리
 clean_columns = [col.rsplit('_', 1)[0] for col in df_uph.columns]
 
-# 중복 이름 최종 방지
 seen = {}
 final_cols = []
 for name in clean_columns:
