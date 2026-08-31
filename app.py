@@ -6,7 +6,7 @@ st.set_page_config(page_title="생산실적 요약 대시보드", layout="wide")
 
 file_path = "▣ 26년 월간 실적보고 (7월).xlsx"
 
-# 1. 엑셀 데이터 추출
+# 1. 엑셀 데이터 로드
 wb = openpyxl.load_workbook(file_path, data_only=True)
 ws = wb.active
 
@@ -53,31 +53,29 @@ k5.metric("완제품출고 (실적/계획)", f"{ship_actual:,.0f} / {ship_plan:,
 st.markdown("---")
 
 # ----------------------------------------------------
-# 2. 비가동 요인 종합 분석 (원본 그대로 가져오기)
+# 2. 비가동 요인 종합 분석 (안전 추출 버전)
 # ----------------------------------------------------
 st.subheader("2. 비가동 요인 종합 분석")
 
-# 20행 헤더 추출 후 중복 방지 처리
-downtime_headers_raw = [ws.cell(row=20, column=c).value for c in range(9, 19)]
-seen_downtime = {}
-downtime_headers = []
-for h in downtime_headers_raw:
-    name = str(h).strip() if h else "-"
-    if name in seen_downtime:
-        seen_downtime[name] += 1
-        downtime_headers.append(f"{name}_{seen_downtime[name]}")
-    else:
-        seen_downtime[name] = 0
-        downtime_headers.append(name)
+# 21행을 헤더(리워크, 결품 등)로 고정 지정
+downtime_headers = [ws.cell(row=21, column=c).value for c in range(9, 19)]
 
-# 21~29행 데이터 무조건 모두 가져오기 (필터링 제거)
+# 22행부터 29행까지의 데이터를 가져오되 빈 행은 제외
 downtime_rows = []
-for r in range(21, 30):
+for r in range(22, 30):
     row_vals = [ws.cell(row=r, column=c).value for c in range(9, 19)]
-    downtime_rows.append(row_vals)
+    if any(v is not None and str(v).strip() != '' for v in row_vals):
+        downtime_rows.append(row_vals)
 
-# 데이터프레임 생성 및 출력
-df_downtime = pd.DataFrame(downtime_rows, columns=downtime_headers).fillna("-")
+df_downtime = pd.DataFrame(downtime_rows, columns=downtime_headers)
+
+# 데이터가 없는 비어있는 열이 있다면 자동 제거
+df_downtime = df_downtime.loc[:, df_downtime.columns.notna()]
+df_downtime = df_downtime.loc[:, df_downtime.columns != '']
+
+# 빈 값은 '-'로 채우기
+df_downtime = df_downtime.fillna("-")
+
 st.dataframe(df_downtime, use_container_width=True)
 
 st.markdown("---")
@@ -112,7 +110,6 @@ for r in range(31, 39):
         uph_rows.append(formatted_row)
 
 df_uph = pd.DataFrame(uph_rows, columns=uph_cols)
-
 clean_columns = [col.rsplit('_', 1)[0] for col in df_uph.columns]
 
 seen = {}
