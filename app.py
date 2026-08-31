@@ -6,7 +6,6 @@ st.set_page_config(page_title="생산실적 요약 대시보드", layout="wide")
 
 file_path = "▣ 26년 월간 실적보고 (7월).xlsx"
 
-# 1. 엑셀 데이터 로드
 wb = openpyxl.load_workbook(file_path, data_only=True)
 ws = wb.active
 
@@ -36,9 +35,7 @@ achieve_rate = (actual_qty / plan_qty * 100) if plan_qty > 0 else 0
 ship_plan = get_val(50, 11)
 ship_actual = get_val(50, 13)
 
-# ----------------------------------------------------
 # UI 영역
-# ----------------------------------------------------
 st.title(f"📊 [임원 보고용] {report_title} 요약 대시보드")
 st.markdown("---")
 
@@ -52,37 +49,38 @@ k5.metric("완제품출고 (실적/계획)", f"{ship_actual:,.0f} / {ship_plan:,
 
 st.markdown("---")
 
-# ----------------------------------------------------
-# 2. 비가동 요인 종합 분석 (안전 추출 버전)
-# ----------------------------------------------------
+# 2. 비가동 요인 종합 분석 (데이터 누락 방지 안전 버전)
 st.subheader("2. 비가동 요인 종합 분석")
 
-# 21행을 헤더(리워크, 결품 등)로 고정 지정
-downtime_headers = [ws.cell(row=21, column=c).value for c in range(9, 19)]
+# 헤더 행 (20행과 21행 조합)
+downtime_headers = []
+for c in range(9, 19):
+    h20 = ws.cell(row=20, column=c).value
+    h21 = ws.cell(row=21, column=c).value
+    name = str(h21).strip() if h21 and str(h21).strip() else (str(h20).strip() if h20 and str(h20).strip() else "")
+    downtime_headers.append(name)
 
-# 22행부터 29행까지의 데이터를 가져오되 빈 행은 제외
+# 데이터 행 (21행부터 아래로 글자나 숫자가 들어있는 행을 자동으로 탐색)
 downtime_rows = []
-for r in range(22, 30):
+for r in range(21, 31):
     row_vals = [ws.cell(row=r, column=c).value for c in range(9, 19)]
+    # 빈 행이 아니면 모두 추가
     if any(v is not None and str(v).strip() != '' for v in row_vals):
         downtime_rows.append(row_vals)
 
-df_downtime = pd.DataFrame(downtime_rows, columns=downtime_headers)
+df_downtime = pd.DataFrame(downtime_rows)
 
-# 데이터가 없는 비어있는 열이 있다면 자동 제거
-df_downtime = df_downtime.loc[:, df_downtime.columns.notna()]
-df_downtime = df_downtime.loc[:, df_downtime.columns != '']
+# 첫 번째 행을 헤더로 설정하고, 데이터는 그 아래부터 표시
+if len(df_downtime) > 0:
+    df_downtime.columns = downtime_headers[:len(df_downtime.columns)]
+    df_downtime = df_downtime.iloc[1:].reset_index(drop=True) # 헤더로 쓴 첫 줄 제외
 
-# 빈 값은 '-'로 채우기
 df_downtime = df_downtime.fillna("-")
-
 st.dataframe(df_downtime, use_container_width=True)
 
 st.markdown("---")
 
-# ----------------------------------------------------
 # 3. 라인별 UPH / PPH 상세 관리 현황
-# ----------------------------------------------------
 st.subheader("3. 라인별 UPH / PPH 상세 관리 현황")
 
 uph_r29 = [ws.cell(row=29, column=c).value for c in range(2, 18)]
