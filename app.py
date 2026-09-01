@@ -6,7 +6,7 @@ st.set_page_config(page_title="생산실적 요약 대시보드", layout="wide")
 
 file_path = "▣ 26년 월간 실적보고 (7월).xlsx"
 
-# 1. 엑셀 데이터 추출
+# 1. 엑셀 파일 로드 및 안전 추출 함수
 wb = openpyxl.load_workbook(file_path, data_only=True)
 ws = wb.active
 
@@ -21,98 +21,85 @@ def safe_val(row, col):
     except:
         return 0
 
-# KPI 수치 추출
-order_qty = safe_val(7, 15) or safe_val(7, 14)
-plan_qty = safe_val(8, 15) or safe_val(8, 14)
-capa_qty = safe_val(9, 15) or safe_val(9, 14)
-actual_qty = safe_val(10, 15) or safe_val(10, 14)
-achieve_rate = (actual_qty / plan_qty * 100) if plan_qty > 0 else 0
-
-ship_plan = safe_val(50, 11)
-ship_actual = safe_val(50, 13)
-
-# ----------------------------------------------------
-# UI 메인 헤더 & KPI 카드
-# ----------------------------------------------------
+# UI 제목
 st.title(f"📊 [임원 보고용] {report_title} 요약 대시보드")
 st.markdown("---")
 
-st.subheader("1. 핵심 생산 KPI & 출고 요약")
-k1, k2, k3, k4, k5 = st.columns(5)
-k1.metric("발주량", f"{order_qty:,.0f} EA")
-k2.metric("생산계획", f"{plan_qty:,.0f} EA")
-k3.metric("CAPA계획", f"{capa_qty:,.0f} EA")
-k4.metric("생산실적", f"{actual_qty:,.0f} EA", delta=f"달성률 {achieve_rate:.1f}%")
-k5.metric("완제품출고 (실적/계획)", f"{ship_actual:,.0f} / {ship_plan:,.0f} 건")
-
-st.markdown("---")
-
 # ----------------------------------------------------
-# 2. 비가동 요인 종합 분석 (헤더 세부 교정)
+# 1. 비가동 요인 종합 분석
 # ----------------------------------------------------
-st.subheader("2. 비가동 요인 종합 분석")
+st.subheader("1. 비가동 요인 (Hr)")
 
-downtime_headers = []
-for c in range(9, 19):
-    h20 = ws.cell(row=20, column=c).value
-    h21 = ws.cell(row=21, column=c).value
-    
-    col_name = str(h21).strip() if (h21 and str(h21).strip()) else (str(h20).strip() if (h20 and str(h20).strip()) else f"미지정_{c}")
-    downtime_headers.append(col_name)
+# 20, 21행 조합 헤더
+downtime_headers = ["리워크", "결품", "보급지연", "불량", "스페어파츠 포장", "교육", "기타", "합계"]
 
-# 데이터 영역 (22행 ~ 29행)
 downtime_rows = []
 for r in range(22, 30):
-    row_vals = [ws.cell(row=r, column=c).value for c in range(9, 19)]
-    if any(v is not None and str(v).strip() != '' for v in row_vals):
-        downtime_rows.append(row_vals)
+    row_vals = [ws.cell(row=r, column=c).value for c in range(9, 17)]
+    # 수치 데이터 정제
+    clean_vals = [round(v, 2) if isinstance(v, (int, float)) else "-" for v in row_vals]
+    if any(v != "-" for v in clean_vals):
+        downtime_rows.append(clean_vals)
+
+if not downtime_rows: # 비가동 내역이 없을 경우 예시 기본행 처리
+    downtime_rows = [["-"] * len(downtime_headers)]
 
 df_downtime = pd.DataFrame(downtime_rows, columns=downtime_headers)
-
-# 불필요한 미지정 공란 열 정제
-df_downtime = df_downtime.loc[:, ~df_downtime.columns.str.startswith("미지정_")].fillna("-")
-
 st.dataframe(df_downtime, use_container_width=True)
 
 st.markdown("---")
 
 # ----------------------------------------------------
-# 3. 라인별 UPH / PPH 상세 관리 현황 (병합 상위 헤더 전파)
+# 2. 라인별 UPH / PPH 관리 현황
 # ----------------------------------------------------
-st.subheader("3. 라인별 UPH / PPH 상세 관리 현황")
+st.subheader("2. 라인별 UPH / PPH 관리 현황")
 
-uph_r29 = [ws.cell(row=29, column=c).value for c in range(2, 18)]
-uph_r30 = [ws.cell(row=30, column=c).value for c in range(2, 18)]
-
-uph_cols = []
-current_parent = "구분"
-
-for h1, h2 in zip(uph_r29, uph_r30):
-    if h1 and str(h1).strip():
-        current_parent = str(h1).strip()
-    
-    sub_name = str(h2).strip() if (h2 and str(h2).strip()) else ""
-    full_name = f"{current_parent} ({sub_name})" if sub_name else current_parent
-    uph_cols.append(full_name)
-
-# 열 이름 중복 처리
-seen = {}
-final_uph_cols = []
-for col in uph_cols:
-    if col in seen:
-        seen[col] += 1
-        final_uph_cols.append(f"{col} ({seen[col]})")
-    else:
-        seen[col] = 0
-        final_uph_cols.append(col)
+uph_cols = [
+    "생산과", "가조립(분해)", "1과_SUB", "1과_조립", "1과_TEST", "1과_옵션", "1과_포장",
+    "2과_SUB", "2과_조립", "2과_TEST&옵션", "2과_포장", "2과_뉴메틱", "3과_헤비듀티", "3과_ITM"
+]
 
 uph_rows = []
-for r in range(31, 39):
-    row_vals = [ws.cell(row=r, column=c).value for c in range(2, 18)]
-    if any(v is not None and str(v).strip() != '' for v in row_vals):
-        formatted = [round(v, 2) if isinstance(v, float) else (v if v is not None else "-") for v in row_vals]
-        uph_rows.append(formatted)
+row_titles = ["투입시간(H)", "생산수량(EA)", "인원수(명)", "UPH", "PPH", "UPD"]
 
-df_uph = pd.DataFrame(uph_rows, columns=final_uph_cols)
+for idx, r in enumerate(range(12, 18)): # UPH 영역 행 범위
+    row_vals = [ws.cell(row=r, column=c).value for c in range(2, 16)]
+    formatted_vals = [row_titles[idx]]
+    
+    for val in row_vals:
+        if isinstance(val, (int, float)):
+            formatted_vals.append(f"{val:,.1f}")
+        elif str(val).startswith("#") or val is None: # #DIV/0! 오류 정제
+            formatted_vals.append("-")
+        else:
+            formatted_vals.append(str(val))
+            
+    uph_rows.append(formatted_vals)
 
+df_uph = pd.DataFrame(uph_rows, columns=uph_cols)
 st.dataframe(df_uph, use_container_width=True)
+
+st.markdown("---")
+
+# ----------------------------------------------------
+# 3. 완제품 출고 현황 요약
+# ----------------------------------------------------
+st.subheader("3. 완제품 출고 현황 요약")
+
+ship_headers = ["정규 오더 준수율", "정기_계획", "정기_실적", "정기_준수율", "긴급_계획", "긴급_실적", "긴급_준수율", "합계_계획", "합계_실적", "합계_준수율", "비고"]
+
+ship_rows = []
+for r in range(20, 25): # 출고 현황 데이터 행 탐색
+    group_name = ws.cell(row=r, column=2).value
+    if group_name:
+        row_data = [
+            group_name,
+            safe_val(r, 4), safe_val(r, 5), f"{safe_val(r, 6)*100:.0f}%",
+            safe_val(r, 7), safe_val(r, 8), f"{safe_val(r, 9)*100:.0f}%",
+            safe_val(r, 10), safe_val(r, 11), f"{safe_val(r, 12)*100:.0f}%",
+            ws.cell(row=r, column=13).value or "-"
+        ]
+        ship_rows.append(row_data)
+
+df_ship = pd.DataFrame(ship_rows, columns=ship_headers)
+st.dataframe(df_ship, use_container_width=True)
