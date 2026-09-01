@@ -12,7 +12,7 @@ ws = wb.active
 
 report_title = ws.cell(row=2, column=2).value or "26년 07월 생산실적 보고"
 
-def get_val(row, col):
+def safe_val(row, col):
     val = ws.cell(row=row, column=col).value
     if val is None or str(val).startswith('='):
         return 0
@@ -21,23 +21,18 @@ def get_val(row, col):
     except:
         return 0
 
-order_qty = get_val(7, 15)
-plan_qty = get_val(8, 15)
-capa_qty = get_val(9, 15)
-actual_qty = get_val(10, 15)
-
-if order_qty == 0 and plan_qty == 0:
-    order_qty = get_val(7, 14)
-    plan_qty = get_val(8, 14)
-    capa_qty = get_val(9, 14)
-    actual_qty = get_val(10, 14)
-
+# KPI 수치 추출
+order_qty = safe_val(7, 15) or safe_val(7, 14)
+plan_qty = safe_val(8, 15) or safe_val(8, 14)
+capa_qty = safe_val(9, 15) or safe_val(9, 14)
+actual_qty = safe_val(10, 15) or safe_val(10, 14)
 achieve_rate = (actual_qty / plan_qty * 100) if plan_qty > 0 else 0
-ship_plan = get_val(50, 11)
-ship_actual = get_val(50, 13)
+
+ship_plan = safe_val(50, 11)
+ship_actual = safe_val(50, 13)
 
 # ----------------------------------------------------
-# UI 영역
+# UI 메인 헤더 & KPI 카드
 # ----------------------------------------------------
 st.title(f"📊 [임원 보고용] {report_title} 요약 대시보드")
 st.markdown("---")
@@ -53,37 +48,36 @@ k5.metric("완제품출고 (실적/계획)", f"{ship_actual:,.0f} / {ship_plan:,
 st.markdown("---")
 
 # ----------------------------------------------------
-# 2. 비가동 요인 종합 분석 (원본 그대로 가져오기)
+# 2. 비가동 요인 종합 분석 (헤더 세부 교정)
 # ----------------------------------------------------
 st.subheader("2. 비가동 요인 종합 분석")
 
-# 20행 헤더 추출 후 중복 방지 처리
-downtime_headers_raw = [ws.cell(row=20, column=c).value for c in range(9, 19)]
-seen_downtime = {}
 downtime_headers = []
-for h in downtime_headers_raw:
-    name = str(h).strip() if h else "-"
-    if name in seen_downtime:
-        seen_downtime[name] += 1
-        downtime_headers.append(f"{name}_{seen_downtime[name]}")
-    else:
-        seen_downtime[name] = 0
-        downtime_headers.append(name)
+for c in range(9, 19):
+    h20 = ws.cell(row=20, column=c).value
+    h21 = ws.cell(row=21, column=c).value
+    
+    col_name = str(h21).strip() if (h21 and str(h21).strip()) else (str(h20).strip() if (h20 and str(h20).strip()) else f"미지정_{c}")
+    downtime_headers.append(col_name)
 
-# 21~29행 데이터 무조건 모두 가져오기 (필터링 제거)
+# 데이터 영역 (22행 ~ 29행)
 downtime_rows = []
-for r in range(21, 30):
+for r in range(22, 30):
     row_vals = [ws.cell(row=r, column=c).value for c in range(9, 19)]
-    downtime_rows.append(row_vals)
+    if any(v is not None and str(v).strip() != '' for v in row_vals):
+        downtime_rows.append(row_vals)
 
-# 데이터프레임 생성 및 출력
-df_downtime = pd.DataFrame(downtime_rows, columns=downtime_headers).fillna("-")
+df_downtime = pd.DataFrame(downtime_rows, columns=downtime_headers)
+
+# 불필요한 미지정 공란 열 정제
+df_downtime = df_downtime.loc[:, ~df_downtime.columns.str.startswith("미지정_")].fillna("-")
+
 st.dataframe(df_downtime, use_container_width=True)
 
 st.markdown("---")
 
 # ----------------------------------------------------
-# 3. 라인별 UPH / PPH 상세 관리 현황
+# 3. 라인별 UPH / PPH 상세 관리 현황 (병합 상위 헤더 전파)
 # ----------------------------------------------------
 st.subheader("3. 라인별 UPH / PPH 상세 관리 현황")
 
@@ -91,40 +85,34 @@ uph_r29 = [ws.cell(row=29, column=c).value for c in range(2, 18)]
 uph_r30 = [ws.cell(row=30, column=c).value for c in range(2, 18)]
 
 uph_cols = []
-last_valid = "구분"
-for i, (h1, h2) in enumerate(zip(uph_r29, uph_r30)):
+current_parent = "구분"
+
+for h1, h2 in zip(uph_r29, uph_r30):
     if h1 and str(h1).strip():
-        last_valid = str(h1).strip()
+        current_parent = str(h1).strip()
     
-    val2 = str(h2).strip() if h2 else ""
-    if val2:
-        col_name = f"{last_valid} ({val2})"
+    sub_name = str(h2).strip() if (h2 and str(h2).strip()) else ""
+    full_name = f"{current_parent} ({sub_name})" if sub_name else current_parent
+    uph_cols.append(full_name)
+
+# 열 이름 중복 처리
+seen = {}
+final_uph_cols = []
+for col in uph_cols:
+    if col in seen:
+        seen[col] += 1
+        final_uph_cols.append(f"{col} ({seen[col]})")
     else:
-        col_name = last_valid
-    
-    uph_cols.append(f"{col_name}_{i}")
+        seen[col] = 0
+        final_uph_cols.append(col)
 
 uph_rows = []
 for r in range(31, 39):
     row_vals = [ws.cell(row=r, column=c).value for c in range(2, 18)]
     if any(v is not None and str(v).strip() != '' for v in row_vals):
-        formatted_row = [round(v, 2) if isinstance(v, float) else (v if v is not None else "-") for v in row_vals]
-        uph_rows.append(formatted_row)
+        formatted = [round(v, 2) if isinstance(v, float) else (v if v is not None else "-") for v in row_vals]
+        uph_rows.append(formatted)
 
-df_uph = pd.DataFrame(uph_rows, columns=uph_cols)
-
-clean_columns = [col.rsplit('_', 1)[0] for col in df_uph.columns]
-
-seen = {}
-final_cols = []
-for name in clean_columns:
-    if name in seen:
-        seen[name] += 1
-        final_cols.append(f"{name}_{seen[name]}")
-    else:
-        seen[name] = 0
-        final_cols.append(name)
-        
-df_uph.columns = final_cols
+df_uph = pd.DataFrame(uph_rows, columns=final_uph_cols)
 
 st.dataframe(df_uph, use_container_width=True)
